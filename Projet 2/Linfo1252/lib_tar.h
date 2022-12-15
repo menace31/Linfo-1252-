@@ -4,6 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <stdbool.h>
 
 typedef struct posix_header
 {                              /* byte offset */
@@ -25,6 +31,8 @@ typedef struct posix_header
     char prefix[155];             /* 345 */
     char padding[12];             /* 500 */
 } tar_header_t;
+
+#define SizeOfHeader sizeof(tar_header_t)
 
 #define TMAGIC   "ustar"        /* ustar and a null */
 #define TMAGLEN  6

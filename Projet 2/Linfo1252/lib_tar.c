@@ -15,8 +15,54 @@
  *         -2 if the archive contains a header with an invalid version value,
  *         -3 if the archive contains a header with an invalid checksum value
  */
+
+
+
 int check_archive(int tar_fd) {
-    return 0;
+    tar_header_t *header = (tar_header_t *)malloc(SizeOfHeader);
+    int count =0;
+    int offset = 0;
+    int sum;
+    while(true){
+        pread(tar_fd, header, SizeOfHeader, offset);
+        if (!header->name[0])
+            break;
+        count++;
+        if (header->typeflag == DIRTYPE)
+        {
+            offset += SizeOfHeader;
+        }
+        else
+        {
+            offset += (SizeOfHeader*2 - (TAR_INT(header->size) % SizeOfHeader)) + TAR_INT(header->size);
+        }
+        if (strncmp(TMAGIC, header->magic, TMAGLEN) != 0){
+            free(header);
+            return -1;
+        }
+
+        if (strncmp(TVERSION, header->version, TVERSLEN) != 0){
+            free(header);
+            return -2;
+        }
+
+        sum = 0;
+        char *header_list = (char *)header;
+        for (int i = 0; i < SizeOfHeader; i++){
+            if (i < 156 && i>= 148){
+                sum +=32;
+            }
+            else {
+                sum += header_list[i];
+            }
+        }
+        if (TAR_INT(header->chksum) != sum){
+            free(header);
+            return -3;
+        }
+    }
+    free(header);
+    return count;
 }
 
 /**
@@ -28,7 +74,32 @@ int check_archive(int tar_fd) {
  * @return zero if no entry at the given path exists in the archive,
  *         any other value otherwise.
  */
-int exists(int tar_fd, char *path) {
+int exists(int tar_fd, char *path)
+{
+    int offset = 0;
+    tar_header_t *header = (tar_header_t *)malloc(SizeOfHeader);
+
+    while(true)
+    {
+        pread(tar_fd, header, SizeOfHeader, offset);
+        if (!header->name[0])
+            break;
+
+        if (!strcmp(header->name, path))
+        {
+            free(header);
+            return 1;
+        }
+        if (header->typeflag == DIRTYPE)
+        {
+            offset += SizeOfHeader;
+        }
+        else
+        {
+            offset += (SizeOfHeader*2 - (TAR_INT(header->size) % SizeOfHeader)) + TAR_INT(header->size);
+        }
+    }
+    free(header);
     return 0;
 }
 
@@ -42,6 +113,34 @@ int exists(int tar_fd, char *path) {
  *         any other value otherwise.
  */
 int is_dir(int tar_fd, char *path) {
+
+    tar_header_t *header = (tar_header_t *)malloc(SizeOfHeader);
+
+    int offset = 0;
+    while(true){
+        pread(tar_fd, header, SizeOfHeader, offset);
+        if (!header->name[0])
+            break;
+        if (header->typeflag == DIRTYPE)
+        {
+            offset += SizeOfHeader;
+        }
+        else
+        {
+            offset += (SizeOfHeader*2 - (TAR_INT(header->size) % SizeOfHeader)) + TAR_INT(header->size);
+        }
+        if (!strcmp(header->name, path)){
+            if (header->typeflag == DIRTYPE){
+                free(header);
+                return 1;
+            }
+            else {
+                free(header);
+                return 0;
+            }
+        }
+    }
+    free(header);
     return 0;
 }
 
@@ -55,6 +154,38 @@ int is_dir(int tar_fd, char *path) {
  *         any other value otherwise.
  */
 int is_file(int tar_fd, char *path) {
+
+    tar_header_t *header = (tar_header_t *)malloc(SizeOfHeader);
+
+    int offset = 0;
+    while(true)
+    {
+        pread(tar_fd, header, SizeOfHeader, offset);
+        if (!header->name[0])
+            break;
+
+
+        if (strcmp(header->name, path) == 0){
+            if (header->typeflag == REGTYPE || header->typeflag == AREGTYPE){
+                free(header);
+                return 1;
+            }
+            else {
+                free(header);
+                return 0;
+            }
+        }
+        if (header->typeflag == DIRTYPE)
+        {
+            offset += SizeOfHeader;
+        }
+        else
+        {
+            offset += (SizeOfHeader*2 - (TAR_INT(header->size) % SizeOfHeader)) + TAR_INT(header->size);
+        }
+        
+    }
+    free(header);
     return 0;
 }
 
@@ -67,6 +198,38 @@ int is_file(int tar_fd, char *path) {
  *         any other value otherwise.
  */
 int is_symlink(int tar_fd, char *path) {
+
+    tar_header_t *header = (tar_header_t *)malloc(SizeOfHeader);
+
+    int offset = 0;
+
+    while(true){
+        pread(tar_fd, header, SizeOfHeader, offset);
+        if (!header->name[0])
+            break;
+        if (header->typeflag == DIRTYPE)
+        {
+            offset += SizeOfHeader;
+        }
+        else
+        {
+            offset += (SizeOfHeader*2 - (TAR_INT(header->size) % SizeOfHeader)) + TAR_INT(header->size);
+        }  
+        
+
+        if (strcmp(header->name, path) == 0){
+            if (header->typeflag == LNKTYPE || header->typeflag == SYMTYPE){
+                free(header);
+                return 1;
+            }
+            else {
+                free(header);
+                return 0;
+            } 
+        }
+
+    }
+    free(header);
     return 0;
 }
 
@@ -94,7 +257,56 @@ int is_symlink(int tar_fd, char *path) {
  *         any other value otherwise.
  */
 int list(int tar_fd, char *path, char **entries, size_t *no_entries) {
-    return 0;
+    
+    size_t entries_number = 0;
+    int path_len = strlen(path)-1;
+    int offset = 0;
+
+    tar_header_t *header = (tar_header_t *)malloc(SizeOfHeader);
+
+    if(is_dir(tar_fd,path) == 0 && is_symlink(tar_fd,path) == 0){
+        *no_entries = 0;
+        free(header);
+        return 0;
+    }
+
+    while(true){
+        pread(tar_fd, header, SizeOfHeader, offset);
+        if (!header->name[0]){
+            break;
+        }
+        if (strcmp(header->name, path) == 0){
+            if (header->typeflag == SYMTYPE || header->typeflag == LNKTYPE){
+                int ltar = list(tar_fd, header->linkname, entries, no_entries);
+                free(header);
+                return ltar;
+            }
+        }
+        else if (strncmp(header->name, path, path_len) == 0){
+            if (*no_entries <= entries_number){
+                *no_entries = entries_number;
+                free(header);
+                return entries_number;
+            }
+            else{
+                strcpy(entries[entries_number], header->name);
+                entries_number++;
+            }
+        }
+        if (header->typeflag == DIRTYPE)
+        {
+            offset += SizeOfHeader;
+        }
+        else
+        {
+            offset += (SizeOfHeader*2 - (TAR_INT(header->size) % SizeOfHeader)) + TAR_INT(header->size);
+        }
+    }
+    *no_entries = entries_number;
+    free(header);
+    return entries_number;
+
+
 }
 
 /**
@@ -115,6 +327,59 @@ int list(int tar_fd, char *path, char **entries, size_t *no_entries) {
  *         the end of the file.
  *
  */
+
 ssize_t read_file(int tar_fd, char *path, size_t offset, uint8_t *dest, size_t *len) {
-    return 0;
+    tar_header_t *header = (tar_header_t *)malloc(SizeOfHeader);
+    int head_offset = 0;
+    if (!is_file(tar_fd, path))
+    {
+        free(header);
+        return -1;
+    }
+    
+
+    struct stat stats;
+    fstat(tar_fd, &stats);
+
+    while (head_offset + SizeOfHeader < stats.st_size)
+    {
+        pread(tar_fd, header, SizeOfHeader, head_offset);
+        if (!strcmp(path,header->name))
+        {
+            int value;
+            if (header->typeflag == LNKTYPE || header->typeflag == SYMTYPE)
+            {
+                value = read_file(tar_fd, header->linkname, offset, dest, len);
+            }
+            else if (offset > TAR_INT(header->size))
+            {
+                value = -2;
+            }
+            else
+            {
+                head_offset += SizeOfHeader + offset;
+                int to_read = *len;
+                value = TAR_INT(header->size) - *len - offset;
+
+                if (TAR_INT(header->size) <= *len + offset)
+                {
+                    to_read = TAR_INT(header->size);
+                    *len = TAR_INT(header->size) - offset;
+                    value = 0;
+                }
+                pread(tar_fd, dest, to_read, head_offset);
+            }
+            
+            free(header);
+            return value;
+        }
+        
+        if (!TAR_INT(header->size))
+            head_offset += SizeOfHeader;
+        else
+            head_offset += TAR_INT(header->size) + 2*SizeOfHeader - (TAR_INT(header->size) % SizeOfHeader);
+    }
+    free(header);
+    return head_offset - stats.st_size;
+    
 }
